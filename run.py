@@ -5,7 +5,7 @@ from argparse import ArgumentParser
 import configs
 import utils.data as data
 import utils.process as process
-import utils.functions.cpg as cpg
+import utils.functions.cpg_utils as cpg
 import torch
 import torch.nn.functional as F
 from utils.data.datamanager import loads, train_val_test_split
@@ -203,7 +203,7 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if args.mode == "train":
-        model = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to("cuda")
+        model = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=Bertggnn.learning_rate, weight_decay=Bertggnn.weight_decay)
 
         best_acc = 0.0
@@ -211,14 +211,14 @@ if __name__ == '__main__':
         PATH = args.path
         for epoch in range(1, NUM_EPOCHS + 1):
             train(model, device, train_loader, optimizer, epoch)
-            acc, precision, recall, f1 = validate(model, DEVICE, val_loader)
+            acc, precision, recall, f1 = validate(model, device, val_loader)
             if best_acc < acc:
                 best_acc = acc
                 torch.save(model.state_dict(), PATH)
-            print("acc is: {:.4f}, best acc is {:.4f}n".format(acc, best_acc))
+            print("acc is: {:.4f}, best acc is {:.4f}\n".format(acc, best_acc))
 
-    model_test = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to("cuda")
+    model_test = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to(device)
     model_test.load_state_dict(torch.load(args.path))
-    accuracy, precision, recall, f1 = test(model_test, DEVICE, test_loader)
+    accuracy, precision, recall, f1 = test(model_test, device, test_loader)
 
 

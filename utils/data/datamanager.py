@@ -65,7 +65,7 @@ def tokenize(data_frame: pd.DataFrame):
 
 def to_files(data_frame: pd.DataFrame, out_path):
     # path = f"{self.out_path}/{self.dataset_name}/"
-    os.makedirs(out_path)
+    os.makedirs(out_path, exist_ok = True)
 
     for idx, row in data_frame.iterrows():
         file_name = f"{idx}.c"
@@ -108,7 +108,7 @@ def train_val_test_split(data_frame: pd.DataFrame, shuffle=True):
     val = val.reset_index(drop=True)
     test = test.reset_index(drop=True)
 
-    return InputDataset(train), InputDataset(test), InputDataset(val)
+    return InputDataset(train), InputDataset(val), InputDataset(test)
 
 
 def get_directory_files(directory):

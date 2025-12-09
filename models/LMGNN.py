@@ -1,7 +1,7 @@
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
-from layers import Conv, encode_input
+from models.layers import Conv, encode_input
 from torch_geometric.nn.conv import GatedGraphConv
 from transformers import AutoModel, AutoTokenizer
 from transformers import RobertaTokenizer, RobertaConfig, RobertaModel
@@ -44,19 +44,25 @@ class BertGGCN(nn.Module):
 
     def update_nodes(self, data):
 
+        if not isinstance(data.x, dict):
+            return
+
+        embeddings = []
         for n_id, node in data.x.items():
             # Get node's code
             node_code = node.get_code()
             tokenized_code = self.tokenizer(node_code, True)
 
-            input_ids, attention_mask = encode_input(tokenized_code, self.tokenizer_bert)
-            cls_feats = self.bert_model(input_ids.to("cuda"), attention_mask.to("cuda"))[0][:, 0]
+            input_ids, attention_mask = encode_input(tokenized_code, self.tokenizer)
+            cls_feats = self.bert_model(input_ids.to(self.device), attention_mask.to(self.device))[0][:, 0]
 
             source_embedding = np.mean(cls_feats.cpu().detach().numpy(), 0)
             # The node representation is the concatenation of label and source embeddings
             embedding = np.concatenate((np.array([node.type]), source_embedding), axis=0)
             # print(node.label, node.properties.properties.get("METHOD_FULL_NAME"))
             data.x = embedding
+        
+        data.x = th.tensor(embeddings, dtype=th.float32, device=self.device)
 
     def save(self, path):
         print(path)

@@ -1,4 +1,4 @@
-import torch as th
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn.conv import GatedGraphConv
@@ -29,14 +29,14 @@ def encode_input(text, tokenizer):
 #     print(input.keys())
     return input.input_ids, input.attention_mask
 
-class CodeBertClassifier(th.nn.Module):
+class CodeBertClassifier(nn.Module):
     def __init__(self, pretrained_model='roberta_base', nb_class=2):
         super(CodeBertClassifier, self).__init__()
         self.nb_class = nb_class
         self.tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
         self.bert_model = RobertaModel.from_pretrained("microsoft/codebert-base")
         self.feat_dim = list(self.bert_model.modules())[-2].out_features
-        self.classifier = th.nn.Linear(self.feat_dim, self.nb_class)
+        self.classifier = nn.Linear(self.feat_dim, self.nb_class)
 
     def forward(self, input_ids, attention_mask):
         cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]

@@ -9,16 +9,21 @@ from transformers import RobertaTokenizer, RobertaModel
 
 class NodesEmbedding:
     def __init__(self, nodes_dim: int, w2v_keyed_vectors: Word2VecKeyedVectors):
-        self.w2v_keyed_vectors = w2v_keyed_vectors
-        self.kv_size = w2v_keyed_vectors.vector_size
-        self.tokenizer_bert = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
-        self.bert_model = RobertaModel.from_pretrained("microsoft/codebert-base").to("cuda")
         self.nodes_dim = nodes_dim
-
         assert self.nodes_dim >= 0
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.tokenizer_bert = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
+        self.bert_model = RobertaModel.from_pretrained("microsoft/codebert-base").to(self.device)
+
+        self.feat_dim = self.bert_model.config.hidden_size
+        self.kv_size = self.feat_dim        
 
         # Buffer for embeddings with padding
         self.target = torch.zeros(self.nodes_dim, self.kv_size + 1).float()
+
+        self.w2v_keyed_vectors = w2v_keyed_vectors
 
     def __call__(self, nodes):
         embedded_nodes = self.embed_nodes(nodes)
@@ -37,7 +42,7 @@ class NodesEmbedding:
             node_code = node.get_code()
             tokenized_code = tokenizer(node_code, True)
             input_ids, attention_mask = encode_input(tokenized_code, self.tokenizer_bert)
-            cls_feats = self.bert_model(input_ids.to("cuda"), attention_mask.to("cuda"))[0][:, 0]
+            cls_feats = self.bert_model(input_ids.to(self.device), attention_mask.to(self.device))[0][:, 0]
             source_embedding = np.mean(cls_feats.cpu().detach().numpy(), 0)
             # The node representation is the concatenation of label and source embeddings
             embedding = np.concatenate((np.array([node.type]), source_embedding), axis=0)
@@ -98,7 +103,7 @@ class GraphsEmbedding:
         return coo
 
 
-def nodes_to_input(nodes, target, nodes_dim, keyed_vectors, edge_type):
+def nodes_to_input(nodes, target, nodes_dim, edge_type, keyed_vectors = None):
     nodes_embedding = NodesEmbedding(nodes_dim, keyed_vectors)
     graphs_embedding = GraphsEmbedding(edge_type)
     label = torch.tensor([target]).float()
