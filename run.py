@@ -127,6 +127,88 @@ def train(model, device, train_loader, optimizer, epoch):
                                                                             len(train_loader.dataset),
                                                                             100. * batch_idx / len(train_loader),
                                                                             loss.item()))
+            
+def train_kd(model_s1, model_s2, device, train_loader, optimizer_s1, optimizer_s2, epoch, alpha):
+    model_s1.train()
+    model_s2.train()
+
+    for batch_idx, batch in enumerate(train_loader):
+        batch = batch.to(device)
+        targets = batch.y.squeeze().long()
+
+        # --- Train S1 (teacher = S2, detach) ---
+        optimizer_s1.zero_grad()
+
+        y1, z1 = model_s1.forward_with_node_embeddings(batch)
+        ce1 = F.cross_entropy(y1, targets)
+
+        with torch.no_grad():
+            _, z2_t = model_s2.forward_with_node_embeddings(batch)
+        lsp1 = compute_lsp_loss(z_student=z1, z_teacher=z2_t.detach(), edge_index=batch.edge_index)
+
+        loss1 = ce1 + alpha * lsp1
+        loss1.backward()
+        optimizer_s1.step()
+
+        # --- Train S2 (teacher = S1, detach) ---
+        optimizer_s2.zero_grad()
+
+        y2, z2 = model_s2.forward_with_node_embeddings(batch)
+        ce2 = F.cross_entropy(y2, targets)
+
+        with torch.no_grad():
+            _, z1_t = model_s1.forward_with_node_embeddings(batch)
+        lsp2 = compute_lsp_loss(z_student=z2, z_teacher=z1_t.detach(), edge_index=batch.edge_index)
+
+        loss2 = ce2 + alpha * lsp2
+        loss2.backward()
+        optimizer_s2.step()
+
+        if (batch_idx + 1) % 100 == 0:
+            print(
+                f"Epoch {epoch} [{batch_idx+1}/{len(train_loader)}] "
+                f"Loss1: {loss1.item():.6f} (CE={ce1.item():.4f}, LSP={lsp1.item():.4f}) "
+                f"Loss2: {loss2.item():.6f} (CE={ce2.item():.4f}, LSP={lsp2.item():.4f})"
+            )
+
+
+def compute_lsp_loss(z_student, z_teacher, edge_index):
+    row, col = edge_index
+    device = z_student.device
+    N = z_student.size(0)
+
+    diff_t = z_teacher[row] - z_teacher[col]
+    sim_t = - (diff_t * diff_t).sum(dim=1)
+
+    diff_s = z_student[row] - z_student[col]
+    sim_s = - (diff_s * diff_s).sum(dim=1)
+
+    total_kl = torch.tensor(0.0, device=device)
+    count = 0
+
+    for i in range(N):
+        mask = (row == i)
+        if not mask.any():
+            continue
+
+        st = sim_t[mask]
+        ss = sim_s[mask]
+
+        st_exp = torch.exp(st - st.max())
+        pt = st_exp / (st_exp.sum() + 1e-12)
+
+        ss_exp = torch.exp(ss - ss.max())
+        ps = ss_exp / (ss_exp.sum() + 1e-12)
+
+        kl_i = torch.sum(pt * (torch.log(pt + 1e-12) - torch.log(ps + 1e-12)))
+        total_kl += kl_i
+        count += 1
+
+    if count == 0:
+        return torch.tensor(0.0, device=device)
+
+    return total_kl / count
+
 def validate(model, device, test_loader):
     """
     Validates the model using the provided test data.
@@ -203,18 +285,31 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if args.mode == "train":
-        model = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to(device)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=Bertggnn.learning_rate, weight_decay=Bertggnn.weight_decay)
+        model_s1 = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to(device)
+        model_s2 = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to(device)
+
+        optimizer_s1 = torch.optim.AdamW(
+            model_s1.parameters(),
+            lr=Bertggnn.learning_rate,
+            weight_decay=Bertggnn.weight_decay
+        )
+        optimizer_s2 = torch.optim.AdamW(
+            model_s2.parameters(),
+            lr=Bertggnn.learning_rate,
+            weight_decay=Bertggnn.weight_decay
+        )
+
+        alpha_kd = Bertggnn.loss_lambda
 
         best_acc = 0.0
         NUM_EPOCHS = context.epochs
         PATH = args.path
         for epoch in range(1, NUM_EPOCHS + 1):
-            train(model, device, train_loader, optimizer, epoch)
-            acc, precision, recall, f1 = validate(model, device, val_loader)
+            train_kd(model_s1, model_s2, device, train_loader, optimizer_s1, optimizer_s2, epoch, alpha_kd)
+            acc, precision, recall, f1 = validate(model_s1, device, val_loader)
             if best_acc < acc:
                 best_acc = acc
-                torch.save(model.state_dict(), PATH)
+                torch.save(model_s1.state_dict(), PATH)
             print("acc is: {:.4f}, best acc is {:.4f}\n".format(acc, best_acc))
 
     model_test = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to(device)

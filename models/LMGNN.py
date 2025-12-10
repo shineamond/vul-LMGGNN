@@ -41,6 +41,29 @@ class BertGGCN(nn.Module):
         pred = th.log(pred)
 
         return pred
+    
+    def forward_with_node_embeddings(self, data):
+        if self.training:
+            self.update_nodes(data)
+
+        x, edge_index, text = data.x, data.edge_index, data.func
+
+        node_emb = self.ggnn(x, edge_index)
+
+        x_out = self.conv(node_emb, data.x)
+
+        input_ids, attention_mask = encode_input(text, self.tokenizer)
+        cls_feats = self.bert_model(
+            input_ids.to(self.device),
+            attention_mask.to(self.device)
+        )[0][:, 0]
+        cls_logit = self.classifier(cls_feats.to(self.device))
+
+        pred = (x_out + 1e-10) * self.k + cls_logit * (1 - self.k)
+        pred = th.log(pred)
+
+        return pred, node_emb
+
 
     def update_nodes(self, data):
 
@@ -66,9 +89,9 @@ class BertGGCN(nn.Module):
 
     def save(self, path):
         print(path)
-        torch.save(self.state_dict(), path)
+        th.save(self.state_dict(), path)
         print("save!!!!!!")
 
     def load(self, path):
-        self.load_state_dict(torch.load(path))
+        self.load_state_dict(th.load(path))
 
