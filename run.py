@@ -128,23 +128,31 @@ def train(model, device, train_loader, optimizer, epoch):
                                                                             100. * batch_idx / len(train_loader),
                                                                             loss.item()))
             
-def train_kd(model_s1, model_s2, device, train_loader, optimizer_s1, optimizer_s2, epoch, alpha):
+def train_kd(model_s1, model_s2, device_s1, device_s2, train_loader, optimizer_s1, optimizer_s2, epoch, alpha):
     model_s1.train()
     model_s2.train()
 
     for batch_idx, batch in enumerate(train_loader):
-        batch = batch.to(device)
-        targets = batch.y.squeeze().long()
+        batch_s1 = batch.to(device_s1)
+        batch_s2 = batch.to(device_s2)
+        targets_s1 = batch_s1.y.squeeze().long()
+        targets_s2 = batch_s2.y.squeeze().long()
 
         # --- Train S1 (teacher = S2, detach) ---
         optimizer_s1.zero_grad()
 
-        y1, z1 = model_s1.forward_with_node_embeddings(batch)
-        ce1 = F.cross_entropy(y1, targets)
+        y1, z1 = model_s1.forward_with_node_embeddings(batch_s1)
+        ce1 = F.cross_entropy(y1, targets_s1)
 
         with torch.no_grad():
-            _, z2_t = model_s2.forward_with_node_embeddings(batch)
-        lsp1 = compute_lsp_loss(z_student=z1, z_teacher=z2_t.detach(), edge_index=batch.edge_index)
+            _, z2_t = model_s2.forward_with_node_embeddings(batch_s2)
+        z2_t = z2_t.to(device_s1)
+        edge_index_s1 = batch_s1.edge_index
+        lsp1 = compute_lsp_loss(
+            z_student=z1,
+            z_teacher=z2_t,
+            edge_index=edge_index_s1,
+        )
 
         loss1 = ce1 + alpha * lsp1
         loss1.backward()
@@ -153,12 +161,18 @@ def train_kd(model_s1, model_s2, device, train_loader, optimizer_s1, optimizer_s
         # --- Train S2 (teacher = S1, detach) ---
         optimizer_s2.zero_grad()
 
-        y2, z2 = model_s2.forward_with_node_embeddings(batch)
-        ce2 = F.cross_entropy(y2, targets)
+        y2, z2 = model_s2.forward_with_node_embeddings(batch_s2)
+        ce2 = F.cross_entropy(y2, targets_s2)
 
         with torch.no_grad():
-            _, z1_t = model_s1.forward_with_node_embeddings(batch)
-        lsp2 = compute_lsp_loss(z_student=z2, z_teacher=z1_t.detach(), edge_index=batch.edge_index)
+            _, z1_t = model_s1.forward_with_node_embeddings(batch_s1)
+        z1_t = z1_t.to(device_s2)
+        edge_index_s2 = batch_s2.edge_index
+        lsp2 = compute_lsp_loss(
+            z_student=z2,
+            z_teacher=z1_t,
+            edge_index=edge_index_s2,
+        )
 
         loss2 = ce2 + alpha * lsp2
         loss2.backward()
@@ -282,12 +296,13 @@ if __name__ == '__main__':
     gated_graph_conv_args = Bertggnn.model["gated_graph_conv_args"]
     conv_args = Bertggnn.model["conv_args"]
     emb_size = Bertggnn.model["emb_size"]
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    device_s1 = torch.device("cuda:0")
+    device_s2 = torch.device("cuda:1")
 
     if args.mode == "train":
-        model_s1 = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to(device)
-        model_s2 = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to(device)
-
+        model_s1 = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device_s1).to(device_s1)
+        model_s2 = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device_s2).to(device_s2)
         optimizer_s1 = torch.optim.AdamW(
             model_s1.parameters(),
             lr=Bertggnn.learning_rate,
@@ -305,15 +320,14 @@ if __name__ == '__main__':
         NUM_EPOCHS = context.epochs
         PATH = args.path
         for epoch in range(1, NUM_EPOCHS + 1):
-            train_kd(model_s1, model_s2, device, train_loader, optimizer_s1, optimizer_s2, epoch, alpha_kd)
-            acc, precision, recall, f1 = validate(model_s1, device, val_loader)
+            train_kd(model_s1, model_s2, device_s1, device_s2, train_loader, optimizer_s1, optimizer_s2, epoch, alpha_kd)
+            acc, precision, recall, f1 = validate(model_s1, device_s1, val_loader)
             if best_acc < acc:
                 best_acc = acc
                 torch.save(model_s1.state_dict(), PATH)
             print("acc is: {:.4f}, best acc is {:.4f}\n".format(acc, best_acc))
 
-    model_test = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device).to(device)
+    model_test = BertGGCN(gated_graph_conv_args, conv_args, emb_size, device_s1).to(device_s1)
     model_test.load_state_dict(torch.load(args.path))
-    accuracy, precision, recall, f1 = test(model_test, device, test_loader)
-
+    accuracy, precision, recall, f1 = test(model_test, device_s1, test_loader)
 
