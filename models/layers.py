@@ -57,12 +57,12 @@ class Conv(nn.Module):
         self.conv1d_1 = nn.Conv1d(**conv1d_1)
         self.conv1d_2 = nn.Conv1d(**conv1d_2)
 
-        fc1_size = get_conv_mp_out_size(fc_1_size, conv1d_2, [maxpool1d_1, maxpool1d_2])
-        fc2_size = get_conv_mp_out_size(fc_2_size, conv1d_2, [maxpool1d_1, maxpool1d_2])
+        self.fc1_in_size = get_conv_mp_out_size(fc_1_size, conv1d_2, [maxpool1d_1, maxpool1d_2])
+        self.fc2_in_size = get_conv_mp_out_size(fc_2_size, conv1d_2, [maxpool1d_1, maxpool1d_2])
 
         # Dense layers
-        self.fc1 = nn.Linear(fc1_size, 1)
-        self.fc2 = nn.Linear(fc2_size, 1)
+        self.fc1 = nn.LazyLinear(1)
+        self.fc2 = nn.LazyLinear(1)
 
         # Dropout
         self.drop = nn.Dropout(p=0.2)
