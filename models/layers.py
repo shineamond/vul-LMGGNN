@@ -24,10 +24,16 @@ def init_weights(m):
         torch.nn.init.xavier_uniform_(m.weight)
 
 def encode_input(text, tokenizer):
+    if isinstance(text, list):
+        if len(text) == 0:
+            text = ""
+        else:
+            text = " ".join(text)
+
     max_length = 512
-    input = tokenizer(text, max_length=max_length, truncation=True, padding='max_length', return_tensors='pt')
+    encoded = tokenizer(text, max_length=max_length, truncation=True, padding='max_length', return_tensors='pt')
 #     print(input.keys())
-    return input.input_ids, input.attention_mask
+    return encoded.input_ids, encoded.attention_mask
 
 class CodeBertClassifier(nn.Module):
     def __init__(self, pretrained_model='roberta_base', nb_class=2):
