@@ -35,33 +35,49 @@ def joern_parse(joern_path, input_path, output_path, file_name):
 
 
 def joern_create(joern_path, in_path, out_path, cpg_files):
-    joern_process = subprocess.Popen(["./" + joern_path + "joern"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     json_files = []
+    script_path = os.path.join(os.path.dirname(os.path.abspath(joern_path)),
+                               "graph-for-funcs.sc")
+    joern_exe = os.path.join(joern_path, "joern")
+
     for cpg_file in cpg_files:
         json_file_name = f"{cpg_file.split('.')[0]}.json"
         json_files.append(json_file_name)
 
-        print(in_path+cpg_file)
-        if os.path.exists(in_path+cpg_file):
-            json_out = f"{os.path.abspath(out_path)}/{json_file_name}"
-            import_cpg_cmd = f"importCpg(\"{os.path.abspath(in_path)}/{cpg_file}\")\r".encode()
-            script_path = f"{os.path.dirname(os.path.abspath(joern_path))}/graph-for-funcs.sc"
-            run_script_cmd = f"cpg.runScript(\"{script_path}\").toString() |> \"{json_out}\"\r".encode()
-            joern_process.stdin.write(import_cpg_cmd)
-            print(joern_process.stdout.readline().decode())
-            joern_process.stdin.write(run_script_cmd)
-            print(joern_process.stdout.readline().decode())
-            joern_process.stdin.write("delete\r".encode())
-            print(joern_process.stdout.readline().decode())
-    try:
-        outs, errs = joern_process.communicate(timeout=60)
-    except subprocess.TimeoutExpired:
-        joern_process.kill()
-        outs, errs = joern_process.communicate()
-    if outs is not None:
-        print(f"Outs: {outs.decode()}")
-    if errs is not None:
-        print(f"Errs: {errs.decode()}")
+        cpg_abs = os.path.abspath(os.path.join(in_path, cpg_file))
+        if not os.path.exists(cpg_abs):
+            print(f"[WARN] CPG file not found: {cpg_abs}")
+            continue
+
+        json_out = os.path.abspath(os.path.join(out_path, json_file_name))
+
+        joern_script = (
+            f'importCpg("{cpg_abs}")\n'
+            f'cpg.runScript("{script_path}").toString() |> "{json_out}"\n'
+            'delete\n'
+        )
+
+        print(f"[INFO] Running Joern for {cpg_abs}")
+        try:
+            proc = subprocess.run(
+                [joern_exe],
+                input=joern_script,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False
+            )
+        except Exception as e:
+            print(f"[ERROR] Failed to run Joern for {cpg_abs}: {e}")
+            continue
+
+        if proc.returncode != 0:
+            print(f"[ERROR] Joern failed for {cpg_abs}")
+            print("STDOUT:\n", proc.stdout)
+            print("STDERR:\n", proc.stderr)
+        else:
+            print(f"[OK] JSON written to {json_out}")
+
     return json_files
 
 
