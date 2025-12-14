@@ -38,7 +38,7 @@
         "edge_type": "Cpg"
     },
     "process" : {
-        "epochs" : 100,
+        "epochs" : 20,
         "patience" : 10,
         "batch_size" : 8,
         "dataset_ratio" : 0.2,

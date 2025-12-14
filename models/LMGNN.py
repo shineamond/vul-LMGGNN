@@ -38,7 +38,6 @@ class BertGGCN(nn.Module):
         cls_logit = self.classifier(cls_feats.to(self.device))
 
         pred = (x + 1e-10) * self.k + cls_logit * (1 - self.k)
-        pred = th.log(pred)
 
         return pred
     
@@ -47,9 +46,7 @@ class BertGGCN(nn.Module):
             self.update_nodes(data)
 
         x, edge_index, text = data.x, data.edge_index, data.func
-
         node_emb = self.ggnn(x, edge_index)
-
         x_out = self.conv(node_emb, data.x)
 
         input_ids, attention_mask = encode_input(text, self.tokenizer)
@@ -60,7 +57,6 @@ class BertGGCN(nn.Module):
         cls_logit = self.classifier(cls_feats.to(self.device))
 
         pred = (x_out + 1e-10) * self.k + cls_logit * (1 - self.k)
-        pred = th.log(pred)
 
         return pred, node_emb
 
