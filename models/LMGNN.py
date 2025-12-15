@@ -31,13 +31,15 @@ class BertGGCN(nn.Module):
 
         x, edge_index, text = data.x, data.edge_index, data.func
         x = self.ggnn(x, edge_index)
-        x = self.conv(x, data.x)
+        p_ggcn = self.conv(x, data.x)
 
         input_ids, attention_mask = encode_input(text, self.tokenizer)
         cls_feats = self.bert_model(input_ids.to(self.device), attention_mask.to(self.device))[0][:, 0]
         cls_logit = self.classifier(cls_feats.to(self.device))
+        p_lm = F.softmax(cls_logit, dim = 1) 
 
-        pred = (x + 1e-10) * self.k + cls_logit * (1 - self.k)
+        pred = self.k * p_ggcn + (1 - self.k) * p_lm
+        pred = pred.clamp(min=1e-12, max=1.0 - 1e-12)
 
         return pred
     
@@ -47,7 +49,7 @@ class BertGGCN(nn.Module):
 
         x, edge_index, text = data.x, data.edge_index, data.func
         node_emb = self.ggnn(x, edge_index)
-        x_out = self.conv(node_emb, data.x)
+        p_ggcn = self.conv(node_emb, data.x)
 
         input_ids, attention_mask = encode_input(text, self.tokenizer)
         cls_feats = self.bert_model(
@@ -55,8 +57,10 @@ class BertGGCN(nn.Module):
             attention_mask.to(self.device)
         )[0][:, 0]
         cls_logit = self.classifier(cls_feats.to(self.device))
+        p_lm = F.softmax(cls_logit, dim = 1)
 
-        pred = (x_out + 1e-10) * self.k + cls_logit * (1 - self.k)
+        pred = self.k * p_ggcn + (1 - self.k) * p_lm
+        pred = pred.clamp(min = 1e-12, max = 1.0 - 1e-12)
 
         return pred, node_emb
 

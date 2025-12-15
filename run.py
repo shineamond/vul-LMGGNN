@@ -23,10 +23,10 @@ def select(dataset):
     result = dataset.loc[dataset['project'] == "FFmpeg"]
     len_filter = result.func.str.len() < 1200
     result = result.loc[len_filter]
-    #print(len(result))
+    print(len(result))
     #result = result.iloc[11001:]
     #print(len(result))
-    result = result.head(200)
+    # result = result.head(200)
 
     return result
 
@@ -119,7 +119,7 @@ def train(model, device, train_loader, optimizer, epoch):
         # print("y_pred data type:", y_pred.dtype)
         # print("batch.y.squeeze() data type:", batch.y.squeeze().dtype)
         batch.y = batch.y.squeeze().long()
-        loss = F.cross_entropy(y_pred, batch.y)
+        loss = F.nll_loss(torch.log(y_pred + 1e-12), batch.y)
         loss.backward()
         optimizer.step()
         if (batch_idx + 1) % 100 == 0:
@@ -140,7 +140,7 @@ def train_kd(model_s1, model_s2, device, train_loader, optimizer_s1, optimizer_s
         optimizer_s1.zero_grad()
 
         y1, z1 = model_s1.forward_with_node_embeddings(batch)
-        ce1 = F.cross_entropy(y1, targets)
+        ce1 = F.nll_loss(torch.log(y1 + 1e-12), targets)
 
         with torch.no_grad():
             _, z2_t = model_s2.forward_with_node_embeddings(batch)
@@ -154,7 +154,7 @@ def train_kd(model_s1, model_s2, device, train_loader, optimizer_s1, optimizer_s
         optimizer_s2.zero_grad()
 
         y2, z2 = model_s2.forward_with_node_embeddings(batch)
-        ce2 = F.cross_entropy(y2, targets)
+        ce2 = F.nll_loss(torch.log(y2 + 1e-12), targets)
 
         with torch.no_grad():
             _, z1_t = model_s1.forward_with_node_embeddings(batch)
@@ -229,11 +229,11 @@ def validate(model, device, test_loader):
             y_ = model(batch)
 
         batch.y = batch.y.squeeze().long()
-        test_loss += F.cross_entropy(y_, batch.y).item()
-        pred = y_.max(-1, keepdim=True)[1]
+        test_loss += F.nll_loss(torch.log(y_ + 1e-12), batch.y).item()
+        pred = pred = y_.argmax(dim=1)
 
         y_true.extend(batch.y.cpu().numpy())
-        y_pred.extend(pred.cpu().numpy())
+        y_pred.extend(pred.cpu().numpy().tolist())
 
     test_loss /= len(test_loader)
 

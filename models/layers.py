@@ -23,16 +23,25 @@ def init_weights(m):
     if type(m) == nn.Linear or type(m) == nn.Conv1d:
         torch.nn.init.xavier_uniform_(m.weight)
 
-def encode_input(text, tokenizer):
-    if isinstance(text, list):
-        if len(text) == 0:
-            text = ""
-        else:
-            text = " ".join(text)
+def encode_input(text, tokenizer, max_length = 512):
+    if isinstance(text, (list, tuple)):
+        text = [t if isinstance(t, str) else str(t) for t in text]
+        encoded = tokenizer(
+            text,
+            max_length=max_length,
+            truncation=True,
+            padding=True,
+            return_tensors="pt"
+        )
+    else:
+        encoded = tokenizer(
+            str(text),
+            max_length=max_length,
+            truncation=True,
+            padding="max_length",
+            return_tensors="pt"
+        )
 
-    max_length = 512
-    encoded = tokenizer(text, max_length=max_length, truncation=True, padding='max_length', return_tensors='pt')
-#     print(input.keys())
     return encoded.input_ids, encoded.attention_mask
 
 class CodeBertClassifier(nn.Module):
@@ -61,8 +70,8 @@ class Conv(nn.Module):
         self.fc2_in_size = get_conv_mp_out_size(fc_2_size, conv1d_2, [maxpool1d_1, maxpool1d_2])
 
         # Dense layers
-        self.fc1 = nn.LazyLinear(1)
-        self.fc2 = nn.LazyLinear(1)
+        self.fc1 = nn.LazyLinear(2)
+        self.fc2 = nn.LazyLinear(2)
 
         # Dropout
         self.drop = nn.Dropout(p=0.2)

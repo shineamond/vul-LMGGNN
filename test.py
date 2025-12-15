@@ -29,12 +29,12 @@ def test(model, device, test_loader):
             y_ = model(batch)
 
         batch.y = batch.y.squeeze().long()
-        test_loss += F.cross_entropy(y_, batch.y).item()
+        test_loss += F.nll_loss(torch.log(y_ + 1e-12), batch.y).item()
+        pred = y_.argmax(dim=1)
 
-        pred = y_.max(-1, keepdim=True)[1]
         y_true.extend(batch.y.cpu().numpy())
-        y_pred.extend(pred.cpu().numpy())
-        y_probs.extend(torch.softmax(y_, dim=1).cpu().numpy()[:, 1])
+        y_pred.extend(pred.cpu().numpy().tolist())
+        y_probs.extend(y_.detach().cpu().numpy()[:, 1])
 
     test_loss /= len(test_loader)
     accuracy = accuracy_score(y_true, y_pred)
