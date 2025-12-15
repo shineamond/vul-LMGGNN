@@ -84,29 +84,33 @@ def inner_join_by_index(df1, df2):
     return pd.merge(df1, df2, left_index=True, right_index=True)
 
 
-def train_val_test_split(data_frame: pd.DataFrame, shuffle=True):
+def train_val_test_split(df: pd.DataFrame, val_size = 0.1, test_size = 0.2, shuffle = True, random_state = 42):
     print("Splitting Dataset")
 
-    false = data_frame[data_frame.target == 0]
-    true = data_frame[data_frame.target == 1]
+    y = df["target"]
 
-    train_false, test_false = train_test_split(false, test_size=0.2, shuffle=shuffle)
-    test_false, val_false = train_test_split(test_false, test_size=0.5, shuffle=shuffle)
-    train_true, test_true = train_test_split(true, test_size=0.2, shuffle=shuffle)
-    test_true, val_true = train_test_split(test_true, test_size=0.5, shuffle=shuffle)
+    train_val, test = train_test_split(
+        df,
+        test_size = test_size,
+        shuffle = shuffle,
+        stratify = y,
+        random_state = random_state,
+    )
 
-    # run = train_false.append(train_true)
-    train = pd.concat([train_false, train_true])
+    val_ratio = val_size / (1.0 - test_size)
 
-    # val = val_false.append(val_true)
-    val = pd.concat([val_false, val_true])
+    y_train_val = train_val["target"]
+    train, val = train_test_split(
+        train_val,
+        test_size = val_ratio,
+        shuffle = shuffle,
+        stratify = y_train_val,
+        random_state = random_state,
+    )
 
-    # test = test_false.append(test_true)
-    test = pd.concat([test_false, test_true])
-
-    train = train.reset_index(drop=True)
-    val = val.reset_index(drop=True)
-    test = test.reset_index(drop=True)
+    train = train.reset_index(drop = True)
+    val = val.reset_index(drop = True)
+    test = test.reset_index(drop = True)
 
     return InputDataset(train), InputDataset(val), InputDataset(test)
 

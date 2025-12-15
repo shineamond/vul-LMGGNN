@@ -13,6 +13,7 @@ from models.LMGNN import BertGGCN
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 import matplotlib.pyplot as plt
 from test import test
+from collections import Counter
 
 PATHS = configs.Paths()
 FILES = configs.Files()
@@ -256,6 +257,12 @@ def validate(model, device, test_loader):
 
     return accuracy, precision, recall, f1
 
+def count_labels(loader):
+    ys = []
+    for b in loader:
+        ys.extend(b.y.view(-1).cpu().numpy().tolist())
+    return Counter(ys)
+
 if __name__ == '__main__':
     parser: ArgumentParser = argparse.ArgumentParser()
     # parser.add_argument('-p', '--prepare', help='Prepare task', required=False)
@@ -274,9 +281,15 @@ if __name__ == '__main__':
     context = configs.Process()
     input_dataset = loads(PATHS.input)
     # split the dataset and pass to DataLoader with batch size
-    train_loader, val_loader, test_loader = list(
-        map(lambda x: x.get_loader(context.batch_size, shuffle=context.shuffle),
-            train_val_test_split(input_dataset, shuffle=context.shuffle)))
+    train_ds, val_ds, test_ds = train_val_test_split(input_dataset, shuffle = context.shuffle)
+
+    train_loader = train_ds.get_loader(context.batch_size, shuffle = True,  drop_last = False)
+    val_loader = val_ds.get_loader(context.batch_size, shuffle = False, drop_last = False)
+    test_loader = test_ds.get_loader(context.batch_size, shuffle = False, drop_last = False)
+
+    print("Train labels:", count_labels(train_loader))
+    print("Val labels:", count_labels(val_loader))
+    print("Test labels:", count_labels(test_loader))
 
     Bertggnn = configs.BertGGNN()
     gated_graph_conv_args = Bertggnn.model["gated_graph_conv_args"]

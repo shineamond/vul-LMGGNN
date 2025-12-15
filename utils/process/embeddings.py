@@ -26,6 +26,7 @@ class NodesEmbedding:
 
         self.tokenizer_bert = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
         self.bert_model = RobertaModel.from_pretrained("microsoft/codebert-base").to(self.device)
+        self.bert_model.eval()
 
         self.feat_dim = self.bert_model.config.hidden_size
         self.kv_size = self.feat_dim        

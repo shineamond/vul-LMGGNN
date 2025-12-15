@@ -15,5 +15,5 @@ class InputDataset(TorchDataset):
         data.func = self.dataset.iloc[index].func  # Add existing 'func' attribute for CodeBERT input
         return data
 
-    def get_loader(self, batch_size, shuffle=True):
-        return DataLoader(dataset=self, batch_size=batch_size, shuffle=shuffle, drop_last=True)
+    def get_loader(self, batch_size, shuffle = True, drop_last = False):
+        return DataLoader(dataset=self, batch_size=batch_size, shuffle = shuffle, drop_last = drop_last)
