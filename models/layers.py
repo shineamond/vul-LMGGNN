@@ -26,11 +26,14 @@ def init_weights(m):
 def encode_input(text, tokenizer, max_length = 512):
     if isinstance(text, (list, tuple)):
         text = [t if isinstance(t, str) else str(t) for t in text]
+        if len(text) == 0:
+            text = [""]
+            
         encoded = tokenizer(
             text,
             max_length=max_length,
             truncation=True,
-            padding=True,
+            padding="max_length",
             return_tensors="pt"
         )
     else:

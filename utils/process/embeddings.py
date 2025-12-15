@@ -7,6 +7,16 @@ from gensim.models.keyedvectors import Word2VecKeyedVectors
 from models.layers import encode_input
 from transformers import RobertaTokenizer, RobertaModel
 
+def _is_non_leaf_ast(node, nodes, ast_edge_type: str = "AST") -> bool:
+    """A conservative 'non-leaf' check: any outgoing AST edge to an existing node."""
+    for _, edge in node.edges.items():
+        if edge.type != ast_edge_type:
+            continue
+        # If this node has an outgoing AST edge, it is an internal node.
+        if edge.node_out in nodes and edge.node_out != node.id:
+            return True
+    return False
+
 class NodesEmbedding:
     def __init__(self, nodes_dim: int, w2v_keyed_vectors: Word2VecKeyedVectors):
         self.nodes_dim = nodes_dim
@@ -26,30 +36,39 @@ class NodesEmbedding:
         self.w2v_keyed_vectors = w2v_keyed_vectors
 
     def __call__(self, nodes):
+        target = torch.zeros(self.nodes_dim, self.kv_size + 1, dtype=torch.float32)
         embedded_nodes = self.embed_nodes(nodes)
         nodes_tensor = torch.from_numpy(embedded_nodes).float()
 
-        self.target[:nodes_tensor.size(0), :] = nodes_tensor
+        n = min(nodes_tensor.size(0), target.size(0))
+        target[:n, :] = nodes_tensor[:n, :]
 
-        return self.target
+        return target
 
+    @torch.no_grad()
     def embed_nodes(self, nodes):
+        non_leaf_ids = {n_id for n_id, n in nodes.items() if _is_non_leaf_ast(n, nodes, ast_edge_type="AST")}
 
         embeddings = []
-
         for n_id, node in nodes.items():
             # Get node's code
-            node_code = node.get_code()
-            tokenized_code = tokenizer(node_code, True)
-            input_ids, attention_mask = encode_input(tokenized_code, self.tokenizer_bert)
-            cls_feats = self.bert_model(input_ids.to(self.device), attention_mask.to(self.device))[0][:, 0]
-            source_embedding = np.mean(cls_feats.cpu().detach().numpy(), 0)
-            # The node representation is the concatenation of label and source embeddings
-            embedding = np.concatenate((np.array([node.type]), source_embedding), axis=0)
+            node_code = "" if n_id in non_leaf_ids else (node.get_code() or "")
+            input_ids, attention_mask = encode_input(node_code, self.tokenizer_bert)
+            input_ids = input_ids.to(self.device)
+            attention_mask = attention_mask.to(self.device)
+
+            token_emb = self.bert_model.embeddings.word_embeddings(input_ids)  # (1, L, H)
+
+            mask = attention_mask.unsqueeze(-1).float()  # (1, L, 1)
+            summed = (token_emb * mask).sum(dim=1)       # (1, H)
+            denom = mask.sum(dim=1).clamp(min=1.0)       # (1, 1)
+            source_embedding = (summed / denom).squeeze(0).cpu().numpy()  # (H,)
+
+            embedding = np.concatenate((np.array([node.type], dtype=np.float32), source_embedding.astype(np.float32)), axis=0)
             embeddings.append(embedding)
         # print(node.label, node.properties.properties.get("METHOD_FULL_NAME"))
 
-        return np.array(embeddings)
+        return np.array(embeddings, dtype=np.float32)
 
     # fromTokenToVectors
     # This is the original Word2Vec model usage.

@@ -6,6 +6,17 @@ from torch_geometric.nn.conv import GatedGraphConv
 from transformers import AutoModel, AutoTokenizer
 from transformers import RobertaTokenizer, RobertaConfig, RobertaModel
 import numpy as np
+
+
+def _is_non_leaf_ast(node, nodes, ast_edge_type: str = "AST") -> bool:
+    for _, edge in node.edges.items():
+        if edge.type != ast_edge_type:
+            continue
+        if edge.node_out in nodes and edge.node_out != node.id:
+            return True
+    return False
+
+
 class BertGGCN(nn.Module):
     def __init__(self, gated_graph_conv_args, conv_args, emb_size, device):
         super(BertGGCN, self).__init__()
@@ -69,23 +80,29 @@ class BertGGCN(nn.Module):
 
         if not isinstance(data.x, dict):
             return
+        
+        nodes = data.x
+        ordered = sorted(nodes.items(), key=lambda kv: (kv[1].order if kv[1].order is not None else 10**9))
+        non_leaf_ids = {n_id for n_id, n in nodes.items() if _is_non_leaf_ast(n, nodes, ast_edge_type="AST")}
 
         embeddings = []
-        for n_id, node in data.x.items():
-            # Get node's code
-            node_code = node.get_code()
-            tokenized_code = self.tokenizer(node_code, True)
+        with th.no_grad():
+            for n_id, node in ordered:
+                node_code = "" if n_id in non_leaf_ids else (node.get_code() or "")
+                input_ids, attention_mask = encode_input(node_code, self.tokenizer, max_length=128)
+                input_ids = input_ids.to(self.device)
+                attention_mask = attention_mask.to(self.device)
 
-            input_ids, attention_mask = encode_input(tokenized_code, self.tokenizer)
-            cls_feats = self.bert_model(input_ids.to(self.device), attention_mask.to(self.device))[0][:, 0]
+                token_emb = self.bert_model.embeddings.word_embeddings(input_ids)  # (1, L, H)
+                mask = attention_mask.unsqueeze(-1).float()
+                summed = (token_emb * mask).sum(dim=1)
+                denom = mask.sum(dim=1).clamp(min=1.0)
+                source_embedding = (summed / denom).squeeze(0).cpu().numpy()
 
-            source_embedding = np.mean(cls_feats.cpu().detach().numpy(), 0)
-            # The node representation is the concatenation of label and source embeddings
-            embedding = np.concatenate((np.array([node.type]), source_embedding), axis=0)
-            # print(node.label, node.properties.properties.get("METHOD_FULL_NAME"))
-            data.x = embedding
-        
-        data.x = th.tensor(embeddings, dtype=th.float32, device=self.device)
+                embedding = np.concatenate((np.array([node.type], dtype=np.float32), source_embedding.astype(np.float32)), axis=0)
+                embeddings.append(embedding)
+
+        data.x = th.tensor(np.array(embeddings, dtype=np.float32), dtype=th.float32, device=self.device)
 
     def save(self, path):
         print(path)
