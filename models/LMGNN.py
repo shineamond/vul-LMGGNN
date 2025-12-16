@@ -47,10 +47,11 @@ class BertGGCN(nn.Module):
         input_ids, attention_mask = encode_input(text, self.tokenizer)
         cls_feats = self.bert_model(input_ids.to(self.device), attention_mask.to(self.device))[0][:, 0]
         cls_logit = self.classifier(cls_feats.to(self.device))
-        p_lm = F.softmax(cls_logit, dim = 1) 
+        logit_ggcn = th.log(p_ggcn + 1e-12)
 
-        pred = self.k * p_ggcn + (1 - self.k) * p_lm
-        pred = pred.clamp(min=1e-12, max=1.0 - 1e-12)
+        combined_logit = self.k * logit_ggcn + (1 - self.k) * cls_logit
+        pred = F.softmax(combined_logit, dim = 1)
+        pred = pred.clamp(min = 1e-12, max = 1.0 - 1e-12)
 
         return pred
     
@@ -68,9 +69,10 @@ class BertGGCN(nn.Module):
             attention_mask.to(self.device)
         )[0][:, 0]
         cls_logit = self.classifier(cls_feats.to(self.device))
-        p_lm = F.softmax(cls_logit, dim = 1)
-
-        pred = self.k * p_ggcn + (1 - self.k) * p_lm
+        logit_ggcn = th.log(p_ggcn + 1e-12)
+        
+        combined_logit = self.k * logit_ggcn + (1 - self.k) * cls_logit
+        pred = F.softmax(combined_logit, dim=1)
         pred = pred.clamp(min = 1e-12, max = 1.0 - 1e-12)
 
         return pred, node_emb
