@@ -7,15 +7,50 @@ from gensim.models.keyedvectors import Word2VecKeyedVectors
 from models.layers import encode_input
 from transformers import RobertaTokenizer, RobertaModel
 
-def _is_non_leaf_ast(node, nodes, ast_edge_type: str = "AST") -> bool:
-    """A conservative 'non-leaf' check: any outgoing AST edge to an existing node."""
-    for _, edge in node.edges.items():
-        if edge.type != ast_edge_type:
-            continue
-        # If this node has an outgoing AST edge, it is an internal node.
-        if edge.node_out in nodes and edge.node_out != node.id:
-            return True
-    return False
+
+def _norm_edge_type(t: str) -> str:
+    return (t or "").strip().lower()
+
+
+def _edge_type_set(edge_type):
+    """
+    Normalizes the edge_type configuration.
+
+    - None / "Cpg" / "CPG" / "all" / "*" => accept all edge types
+    - "Ast" => accept only Ast (case-insensitive)
+    - ["Ast", "Cfg"] => accept Ast + Cfg
+    """
+    if edge_type is None:
+        return None
+    if isinstance(edge_type, (list, tuple, set)):
+        s = {_norm_edge_type(x) for x in edge_type if x is not None}
+        return s if len(s) > 0 else None
+
+    et = _norm_edge_type(str(edge_type))
+    if et in ("cpg", "all", "*", "any"):
+        return None
+    return {et}
+
+
+def _compute_non_leaf_ids(nodes, ast_edge_types=("ast",)):
+    """
+    Identifies *non-leaf* AST nodes.
+
+    In Joern JSON exports, AST edges are typically stored as child -> parent
+    (edge.in = child, edge.out = parent). A node is considered non-leaf if it
+    appears as a parent of at least one AST edge.
+    """
+    ast_set = {_norm_edge_type(x) for x in ast_edge_types}
+    parents = set()
+
+    for n_id, node in nodes.items():
+        for edge in node.edges.values():
+            if _norm_edge_type(edge.type) in ast_set:
+                if edge.node_out in nodes and edge.node_out != n_id:
+                    parents.add(edge.node_out)
+
+    return parents
+
 
 class NodesEmbedding:
     def __init__(self, nodes_dim: int, w2v_keyed_vectors: Word2VecKeyedVectors):
@@ -48,7 +83,7 @@ class NodesEmbedding:
 
     @torch.no_grad()
     def embed_nodes(self, nodes):
-        non_leaf_ids = {n_id for n_id, n in nodes.items() if _is_non_leaf_ast(n, nodes, ast_edge_type="AST")}
+        non_leaf_ids = _compute_non_leaf_ids(nodes, ast_edge_types=("ast", "AST"))
 
         embeddings = []
         for n_id, node in nodes.items():
@@ -92,33 +127,37 @@ class NodesEmbedding:
 
 class GraphsEmbedding:
     def __init__(self, edge_type):
-        self.edge_type = edge_type
+        self.edge_types = _edge_type_set(edge_type)
 
     def __call__(self, nodes):
         connections = self.nodes_connectivity(nodes)
 
         return torch.tensor(connections).long()
+    
+    def _accept(self, edge_type: str) -> bool:
+        if self.edge_types is None:
+            return True
+        return _norm_edge_type(edge_type) in self.edge_types
 
     # nodesToGraphConnectivity
     def nodes_connectivity(self, nodes):
         # nodes are ordered by line and column
         coo = [[], []]
 
-        for node_idx, (node_id, node) in enumerate(nodes.items()):
-            if node_idx != node.order:
-                raise Exception("Something wrong with the order")
-
-            for e_id, edge in node.edges.items():
-                if edge.type != self.edge_type:
+        for _, node in nodes.items():
+            for edge in node.edges.values():
+                if not self._accept(edge.type):
                     continue
 
-                if edge.node_in in nodes and edge.node_in != node_id:
-                    coo[0].append(nodes[edge.node_in].order)
-                    coo[1].append(node_idx)
+                if edge.node_in in nodes and edge.node_out in nodes:
+                    src = nodes[edge.node_in].order
+                    dst = nodes[edge.node_out].order
+                    if src == dst:
+                        continue
 
-                if edge.node_out in nodes and edge.node_out != node_id:
-                    coo[0].append(node_idx)
-                    coo[1].append(nodes[edge.node_out].order)
+                    # Bidirectional edge index (common in GGNN settings)
+                    coo[0].append(src); coo[1].append(dst)
+                    coo[0].append(dst); coo[1].append(src)
 
         return coo
 
